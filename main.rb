@@ -21,7 +21,7 @@ def install_deps_if_not_exist(tool)
   run_command_silent("dpkg -s #{tool} > /dev/null 2>&1 || apt-get -y install #{tool} > /dev/null 2>&1")
 end
 
-ac_repository_path = get_env_variable('AC_REPOSITORY_DIR') || abort('Repository path must be defined.')
+ac_repository_path = get_env_variable('AC_REPOSITORY_DIR')
 ac_cache_label = get_env_variable('AC_CACHE_LABEL') || abort('Cache label path must be defined.')
 ac_token_id = get_env_variable('AC_TOKEN_ID') || abort('AC_TOKEN_ID env variable must be set when build started.')
 
@@ -33,6 +33,11 @@ install_deps_if_not_exist('unzip')
 
 @cache = "ac_cache/#{ac_cache_label}"
 zipped = "ac_cache/#{ac_cache_label.gsub('/', '_')}.zip"
+
+puts 'Inputs:'
+puts ac_cache_label
+puts ac_repository_path
+puts '------'
 
 system("rm -rf #{@cache}")
 system("mkdir -p #{@cache}")
@@ -65,5 +70,9 @@ Dir.glob("#{@cache}/*.zip", File::FNM_DOTMATCH).each do |zip_file|
 end
 
 Dir.glob("#{@cache}/repository/*.zip", File::FNM_DOTMATCH).each do |zip_file|
-  run_command("unzip -qq -u #{zip_file} -d #{ac_repository_path}")
+  if ac_repository_path
+    run_command("unzip -qq -u #{zip_file} -d #{ac_repository_path}")
+  else
+    puts "Warning: #{zip_file} is ignored. It can be used only after Git Clone workflow step."
+  end
 end
