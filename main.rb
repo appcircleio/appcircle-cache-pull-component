@@ -11,7 +11,7 @@ end
 
 def run_command(command)
   unless system(command)
-    puts "Unexpected exit with code #{$CHILD_STATUS.exitstatus}. Check logs for details."
+    puts "@@[error] Unexpected exit with code #{$CHILD_STATUS.exitstatus}. Check logs for details."
     exit 0
   end
 end
