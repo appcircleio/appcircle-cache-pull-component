@@ -18,7 +18,10 @@ end
 
 def run_command_with_log(command)
   puts "@@[command] #{command}"
+  s = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   run_command(command)
+  e = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  puts "took #{(e - s).round(3)}s"
 end
 
 def abort_with0(message)
@@ -42,10 +45,18 @@ run_command('curl --version |head -1')
 cache = "ac_cache/#{ac_cache_label}"
 zipped = "ac_cache/#{ac_cache_label.gsub('/', '_')}.zip"
 
-puts 'Inputs:'
+puts '--- Inputs:'
 puts ac_cache_label
 puts ac_repository_path
-puts '------'
+puts '-----------'
+
+env_dirs = Hash.new('')
+ENV.each_pair do |k, v|
+  next unless k.start_with?('AC_')
+  next if v.include?('//') || v.include?(':')
+
+  env_dirs[k] = v if File.directory?(v) || %r{^(.+)/([^/]+)$} =~ v
+end
 
 system("rm -rf #{cache}")
 system("mkdir -p #{cache}")
@@ -60,11 +71,11 @@ unless ac_token_id.empty?
   response = Net::HTTP.get(uri)
   unless response.empty?
     puts 'Downloading cache...'
-    signed = JSON.parse(response)
-    puts signed['getUrl']
 
+    signed = JSON.parse(response)
     ENV['AC_CACHE_GET_URL'] = signed['getUrl']
-    run_command("curl -X GET -H \"Content-Type: application/zip\" -o #{zipped} $AC_CACHE_GET_URL")
+    puts ENV['AC_CACHE_GET_URL']
+    run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" -o #{zipped} $AC_CACHE_GET_URL")
   end
 end
 
@@ -78,14 +89,14 @@ File.open("#{zipped}.md5", 'a') do |f|
 end
 run_command_with_log("unzip -qq #{zipped}")
 
-Dir.glob("#{cache}/*.zip", File::FNM_DOTMATCH).each do |zip_file|
-  run_command_with_log("unzip -qq #{zip_file} -d /")
-end
+Dir.glob("#{cache}/**/*.zip", File::FNM_DOTMATCH).each do |zip_file|
+  puts zip_file
 
-Dir.glob("#{cache}/repository/*.zip", File::FNM_DOTMATCH).each do |zip_file|
-  if ac_repository_path
-    run_command_with_log("unzip -qq -u #{zip_file} -d #{ac_repository_path}")
-  else
-    puts "Warning: #{zip_file} is skipped. It can be used only after Git Clone workflow step."
-  end
+  last_slash = zip_file.rindex('/')
+  base_path = zip_file[cache.length..last_slash - 1]
+  base_path = env_dirs[base_path[1..-1]] if env_dirs.key?(base_path[1..-1])
+
+  puts base_path
+  system("mkdir -p #{base_path}")
+  run_command_with_log("unzip -qq -u #{zip_file} -d #{base_path}/")
 end
