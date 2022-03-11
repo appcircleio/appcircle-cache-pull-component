@@ -87,7 +87,7 @@ puts "MD5: #{md5sum}"
 File.open("#{zipped}.md5", 'a') do |f|
   f.puts md5sum.to_s
 end
-run_command_with_log("unzip -qq #{zipped}")
+run_command_with_log("unzip -qq -o #{zipped}")
 
 Dir.glob("#{cache}/**/*.zip", File::FNM_DOTMATCH).each do |zip_file|
   puts zip_file
@@ -98,5 +98,5 @@ Dir.glob("#{cache}/**/*.zip", File::FNM_DOTMATCH).each do |zip_file|
 
   puts base_path
   system("mkdir -p #{base_path}")
-  run_command_with_log("unzip -qq -u #{zip_file} -d #{base_path}/")
+  run_command_with_log("unzip -qq -u -o #{zip_file} -d #{base_path}/")
 end
