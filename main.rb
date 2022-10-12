@@ -75,7 +75,11 @@ unless ac_token_id.empty?
     signed = JSON.parse(response)
     ENV['AC_CACHE_GET_URL'] = signed['getUrl']
     puts ENV['AC_CACHE_GET_URL']
-    run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" -o #{zipped} $AC_CACHE_GET_URL")
+    if get_env_variable('AC_CACHE_PROVIDER').eql?('FILESYSTEM')
+      run_command_with_log("curl -X GET -o #{zipped} '#{ENV['AC_CACHE_GET_URL']}'")
+    else
+      run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" -o #{zipped} $AC_CACHE_GET_URL")
+    end
   end
 end
 
