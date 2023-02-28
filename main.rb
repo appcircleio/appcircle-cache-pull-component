@@ -76,15 +76,14 @@ unless ac_token_id.empty?
     ENV['AC_CACHE_GET_URL'] = signed['getUrl']
     puts ENV['AC_CACHE_GET_URL']
     if get_env_variable('AC_CACHE_PROVIDER').eql?('FILESYSTEM')
-      run_command_with_log("curl -X GET -o #{zipped} '#{ENV['AC_CACHE_GET_URL']}'")
+      run_command_with_log("curl -X GET --fail -o #{zipped} '#{ENV['AC_CACHE_GET_URL']}'")
     else
-      run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" -o #{zipped} $AC_CACHE_GET_URL")
+      run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" --fail -o #{zipped} $AC_CACHE_GET_URL")
     end
   end
 end
 
 exit 0 unless File.size?(zipped)
-exit 0 if system("head -1 #{zipped} |grep -i -q NoSuchKey && rm -f #{zipped}")
 
 md5sum = Digest::MD5.file(zipped).hexdigest
 puts "MD5: #{md5sum}"
