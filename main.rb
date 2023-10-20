@@ -51,6 +51,7 @@ puts ac_repository_path
 puts '-----------'
 
 puts "test update-1"
+puts "test update-2"
 
 env_dirs = Hash.new('')
 ENV.each_pair do |k, v|
