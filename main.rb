@@ -52,6 +52,7 @@ puts '-----------'
 
 puts "test update-1"
 puts "test update-2"
+puts "test update-3"
 
 env_dirs = Hash.new('')
 ENV.each_pair do |k, v|
