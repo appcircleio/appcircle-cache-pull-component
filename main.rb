@@ -50,6 +50,8 @@ puts ac_cache_label
 puts ac_repository_path
 puts '-----------'
 
+puts "test update-1"
+
 env_dirs = Hash.new('')
 ENV.each_pair do |k, v|
   next unless k.start_with?('AC_')
