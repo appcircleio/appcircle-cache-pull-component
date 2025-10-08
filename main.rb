@@ -2,7 +2,6 @@ require 'English'
 require 'net/http'
 require 'json'
 require 'digest'
-require 'shellwords'
 
 def get_env_variable(key)
   return nil if ENV[key].nil? || ENV[key].strip.empty?
@@ -31,11 +30,10 @@ def abort_with0(message)
 end
 
 def validate_no_prohibited_chars(value)
-    return if value.nil? || value.empty?
-    
-    if value.match?(/[\{\}\\ \?#\[\]]/)
-      abort_with0("AC_CACHE_LABEL contains prohibited characters. " \
-                  "The following characters are not allowed: { } \\ space ? # [ ]")
+    if (m = value.match(/[^\x00-\x7F]/))
+        abort_with0("AC_CACHE_LABEL contains prohibited character: '#{m[0]}'. Non-ASCII characters and shell special characters are not allowed.")
+    elsif (m = value.match(/[\$&()|;<>`"'%{}\[\]\\\s?#]/))
+        abort_with0("AC_CACHE_LABEL contains prohibited character: '#{m[0]}'. Non-ASCII characters and shell special characters are not allowed.")
     end
 end
 
@@ -69,19 +67,13 @@ ENV.each_pair do |k, v|
   env_dirs[k] = v if File.directory?(v) || %r{^(.+)/([^/]+)$} =~ v
 end
 
-system("rm", "-rf", cache)
-system("mkdir", "-p", cache)
+system("rm -rf #{cache}")
+system("mkdir -p #{cache}")
 
 unless ac_token_id.empty?
   puts ''
 
-  safe_label = ac_cache_label.gsub('/', '_')
-
-  if !safe_label.ascii_only? || safe_label.match?(/[\/\?%&#\s]/)
-    safe_label = URI.encode_www_form_component(safe_label)
-  end
-
-  ws_signed_url = "#{signed_url_api}&cacheKey=#{safe_label}&tokenId=#{ac_token_id}"
+  ws_signed_url = "#{signed_url_api}&cacheKey=#{ac_cache_label.gsub('/', '_')}&tokenId=#{ac_token_id}"
   puts ws_signed_url
 
   uri = URI(ws_signed_url)
@@ -93,9 +85,9 @@ unless ac_token_id.empty?
     ENV['AC_CACHE_GET_URL'] = signed['getUrl']
     puts ENV['AC_CACHE_GET_URL']
     if get_env_variable('AC_CACHE_PROVIDER').eql?('FILESYSTEM')
-      run_command_with_log("curl -X GET --fail -o #{Shellwords.escape(zipped)} '#{ENV['AC_CACHE_GET_URL']}'")
+      run_command_with_log("curl -X GET --fail -o #{zipped} '#{ENV['AC_CACHE_GET_URL']}'")
     else
-      run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" --fail -o #{Shellwords.escape(zipped)} $AC_CACHE_GET_URL")
+      run_command_with_log("curl -X GET -H \"Content-Type: application/zip\" --fail -o #{zipped} $AC_CACHE_GET_URL")
     end
   end
 end
@@ -107,7 +99,7 @@ puts "MD5: #{md5sum}"
 File.open("#{zipped}.md5", 'a') do |f|
   f.puts md5sum.to_s
 end
-run_command_with_log("unzip -qq -o #{Shellwords.escape(zipped)}")
+run_command_with_log("unzip -qq -o #{zipped}")
 
 Dir.glob("#{cache}/**/*.zip", File::FNM_DOTMATCH).each do |zip_file|
   puts zip_file
@@ -117,6 +109,6 @@ Dir.glob("#{cache}/**/*.zip", File::FNM_DOTMATCH).each do |zip_file|
   base_path = env_dirs[base_path[1..-1]] if env_dirs.key?(base_path[1..-1])
 
   puts base_path
-  system("mkdir", "-p", base_path)
-  run_command_with_log("unzip -qq -u -o #{Shellwords.escape(zip_file)} -d #{base_path}/")
+  system("mkdir -p #{base_path}")
+  run_command_with_log("unzip -qq -u -o #{zip_file} -d #{base_path}/")
 end
