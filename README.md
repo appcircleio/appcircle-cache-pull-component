@@ -11,3 +11,14 @@ Required Input Variables
 Optional Input Variables
 
 - `AC_REPOSITORY_DIR`: Cloned git repository path. Included and excluded paths are defined relative to cloned repository, except `~` prefixed paths.
+
+## Running tests
+
+Requires the [RSpec](https://rspec.info) gem and the Ruby standard library (Coverage, Open3, Digest). No Gemfile or Bundler needed.
+
+```bash
+gem install rspec   # once
+ruby test/test_main.rb
+```
+
+The suite covers every function in `main.rb` in-process and runs the full script in a subprocess with the `unzip`/`curl` toolchain and the signed-URL HTTP call stubbed, so no real command is executed and no network is used. A pass/fail summary and a coverage report are printed at the end of each run.
