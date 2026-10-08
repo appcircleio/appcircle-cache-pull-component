@@ -11,3 +11,7 @@ Required Input Variables
 Optional Input Variables
 
 - `AC_REPOSITORY_DIR`: Cloned git repository path. Included and excluded paths are defined relative to cloned repository, except `~` prefixed paths.
+
+## Cache Formats
+
+Cache pull supports both formats written by Cache Push: the legacy zip bundle and the tar bundle with `.tar.zst` archives. The format is detected from the downloaded file header. Extracting `.tar.zst` archives requires `zstd` on the runner; without it those archives are skipped with a warning (cache miss, the build continues).
