@@ -140,7 +140,32 @@ def extract_tar_zst(archive_file, base_path)
   puts "took #{(e - s).round(3)}s"
 end
 
+# bsdtar (macOS) keeps the content of a newer file with --keep-newer-files but still sets its mtime to
+# the older archive mtime. GNU tar does not need this. Returns the mtimes of the archive entries that
+# already exist on disk as regular files.
+def existing_mtimes(archive_file, base_path)
+  names = []
+  Open3.pipeline_r(['zstd', '-d', '-c', '-q', archive_file], ['tar', '-tf', '-']) do |out, _threads|
+    out.each_line { |line| names << line.chomp }
+  end
+  names.each_with_object({}) do |name, mtimes|
+    path = File.join(base_path, name)
+    mtimes[path] = File.mtime(path) if File.file?(path) && !File.symlink?(path)
+  end
+end
+
+# A kept (newer) file gets an mtime older than before the extraction; an overwritten file gets the
+# archive mtime, which is not older. So only kept files are restored.
+def restore_mtimes(mtimes)
+  mtimes.each do |path, mtime|
+    next unless File.file?(path) && !File.symlink?(path) && File.mtime(path) < mtime
+
+    File.utime(File.atime(path), mtime, path)
+  end
+end
+
 zstd_available = command_exists?('zstd')
+gnu_tar = `tar --version 2>/dev/null`.include?('GNU tar')
 
 Dir.glob(["#{cache}/**/*.zip", "#{cache}/**/*.tar.zst"], File::FNM_DOTMATCH).each do |archive_file|
   puts archive_file
@@ -156,7 +181,9 @@ Dir.glob(["#{cache}/**/*.zip", "#{cache}/**/*.tar.zst"], File::FNM_DOTMATCH).eac
       puts "Warning: zstd is not available on this runner. #{archive_file} is skipped."
       next
     end
+    mtimes = gnu_tar ? {} : existing_mtimes(archive_file, base_path)
     extract_tar_zst(archive_file, base_path)
+    restore_mtimes(mtimes)
   else
     run_command_with_log("unzip -qq -u -o #{archive_file} -d #{base_path}/")
   end
