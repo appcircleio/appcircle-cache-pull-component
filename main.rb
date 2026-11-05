@@ -108,7 +108,7 @@ if zip_file?(zipped)
   run_command_with_log("unzip -qq -o #{zipped}")
 else
   run_command('tar --version |head -1')
-  run_command_with_log("tar -xf #{zipped}")
+  run_command_with_log("tar -xf #{zipped} --no-same-owner")
 end
 
 # Digest of the archives inside the cache folder. Cache push computes the same digest before it
@@ -125,7 +125,10 @@ File.write("#{zipped}.digest", "#{cache_digest(cache)}\n")
 
 def extract_tar_zst(archive_file, base_path)
   zstd = ['zstd', '-d', '-c', '-q', archive_file]
-  tar = ['tar', '-xf', '-', '-C', "#{base_path}/"]
+  # --keep-newer-files matches the "unzip -u" behavior of the zip path: a file on disk that is newer than
+  # the cached copy (for example a file checked out by Git Clone) is not overwritten.
+  # --no-same-owner keeps the runner user as the owner, like unzip.
+  tar = ['tar', '-xf', '-', '--keep-newer-files', '--no-same-owner', '-C', "#{base_path}/"]
   puts "@@[command] #{zstd.join(' ')} | #{tar.join(' ')}"
   s = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   zstd_status, tar_status = Open3.pipeline(zstd, tar)

@@ -15,3 +15,5 @@ Optional Input Variables
 ## Cache Formats
 
 Cache pull supports both formats written by Cache Push: the legacy zip bundle and the tar bundle with `.tar.zst` archives. The format is detected from the downloaded file header. Extracting `.tar.zst` archives requires `zstd` on the runner; without it those archives are skipped with a warning (cache miss, the build continues).
+
+Like the zip path (`unzip -u`), `.tar.zst` extraction uses `--keep-newer-files`: a file on disk that is newer than its cached copy, for example a file from Git Clone, is not overwritten. Extracted files are owned by the runner user (`--no-same-owner`).
