@@ -2,6 +2,7 @@ require 'English'
 require 'net/http'
 require 'json'
 require 'digest'
+require 'open3'
 
 def get_env_variable(key)
   return nil if ENV[key].nil? || ENV[key].strip.empty?
@@ -39,8 +40,11 @@ ac_callback_url = get_env_variable('AC_CALLBACK_URL') ||
 
 signed_url_api = "#{ac_callback_url}?action=getCacheUrls"
 
+def command_exists?(name)
+  system("command -v #{name} > /dev/null 2>&1")
+end
+
 # check dependencies
-run_command('unzip -v |head -1')
 run_command('curl --version |head -1')
 
 cache = "ac_cache/#{ac_cache_label}"
@@ -86,21 +90,101 @@ end
 
 exit 0 unless File.size?(zipped)
 
+# Legacy MD5 of the bundle, used by older cache push versions.
 md5sum = Digest::MD5.file(zipped).hexdigest
 puts "MD5: #{md5sum}"
 File.open("#{zipped}.md5", 'a') do |f|
   f.puts md5sum.to_s
 end
-run_command_with_log("unzip -qq -o #{zipped}")
 
-Dir.glob("#{cache}/**/*.zip", File::FNM_DOTMATCH).each do |zip_file|
-  puts zip_file
+# Cache push writes either a zip bundle (legacy) or a tar bundle (zstd). The remote object keeps the
+# ".zip" name in both cases, so the format is detected from the file header.
+def zip_file?(file)
+  File.open(file, 'rb') { |f| f.read(2) } == 'PK'
+end
 
-  last_slash = zip_file.rindex('/')
-  base_path = zip_file[cache.length..last_slash - 1]
+if zip_file?(zipped)
+  run_command('unzip -v |head -1')
+  run_command_with_log("unzip -qq -o #{zipped}")
+else
+  run_command('tar --version |head -1')
+  run_command_with_log("tar -xf #{zipped} --no-same-owner")
+end
+
+# Digest of the archives inside the cache folder. Cache push computes the same digest before it
+# builds the bundle and skips the upload when nothing changed.
+def cache_digest(cache_dir)
+  digest = Digest::MD5.new
+  Dir.glob("#{cache_dir}/**/*", File::FNM_DOTMATCH).select { |f| File.file?(f) }.sort.each do |f|
+    digest << "#{f.delete_prefix("#{cache_dir}/")}\0#{Digest::MD5.file(f).hexdigest}\n"
+  end
+  digest.hexdigest
+end
+
+File.write("#{zipped}.digest", "#{cache_digest(cache)}\n")
+
+def extract_tar_zst(archive_file, base_path)
+  zstd = ['zstd', '-d', '-c', '-q', archive_file]
+  # --keep-newer-files matches the "unzip -u" behavior of the zip path: a file on disk that is newer than
+  # the cached copy (for example a file checked out by Git Clone) is not overwritten.
+  # --no-same-owner keeps the runner user as the owner, like unzip.
+  tar = ['tar', '-xf', '-', '--keep-newer-files', '--no-same-owner', '-C', "#{base_path}/"]
+  puts "@@[command] #{zstd.join(' ')} | #{tar.join(' ')}"
+  s = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  zstd_status, tar_status = Open3.pipeline(zstd, tar)
+  e = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  unless zstd_status.success? && tar_status.success?
+    abort_with0("Unexpected exit (zstd: #{zstd_status.exitstatus}, tar: #{tar_status.exitstatus}) " \
+                "while extracting #{archive_file}.")
+  end
+  puts "took #{(e - s).round(3)}s"
+end
+
+# bsdtar (macOS) keeps the content of a newer file with --keep-newer-files but still sets its mtime to
+# the older archive mtime. GNU tar does not need this. Returns the mtimes of the archive entries that
+# already exist on disk as regular files.
+def existing_mtimes(archive_file, base_path)
+  names = []
+  Open3.pipeline_r(['zstd', '-d', '-c', '-q', archive_file], ['tar', '-tf', '-']) do |out, _threads|
+    out.each_line { |line| names << line.chomp }
+  end
+  names.each_with_object({}) do |name, mtimes|
+    path = File.join(base_path, name)
+    mtimes[path] = File.mtime(path) if File.file?(path) && !File.symlink?(path)
+  end
+end
+
+# A kept (newer) file gets an mtime older than before the extraction; an overwritten file gets the
+# archive mtime, which is not older. So only kept files are restored.
+def restore_mtimes(mtimes)
+  mtimes.each do |path, mtime|
+    next unless File.file?(path) && !File.symlink?(path) && File.mtime(path) < mtime
+
+    File.utime(File.atime(path), mtime, path)
+  end
+end
+
+zstd_available = command_exists?('zstd')
+gnu_tar = `tar --version 2>/dev/null`.include?('GNU tar')
+
+Dir.glob(["#{cache}/**/*.zip", "#{cache}/**/*.tar.zst"], File::FNM_DOTMATCH).each do |archive_file|
+  puts archive_file
+
+  last_slash = archive_file.rindex('/')
+  base_path = archive_file[cache.length..last_slash - 1]
   base_path = env_dirs[base_path[1..-1]] if env_dirs.key?(base_path[1..-1])
 
   puts base_path
   system("mkdir -p #{base_path}")
-  run_command_with_log("unzip -qq -u -o #{zip_file} -d #{base_path}/")
+  if archive_file.end_with?('.tar.zst')
+    unless zstd_available
+      puts "Warning: zstd is not available on this runner. #{archive_file} is skipped."
+      next
+    end
+    mtimes = gnu_tar ? {} : existing_mtimes(archive_file, base_path)
+    extract_tar_zst(archive_file, base_path)
+    restore_mtimes(mtimes)
+  else
+    run_command_with_log("unzip -qq -u -o #{archive_file} -d #{base_path}/")
+  end
 end
